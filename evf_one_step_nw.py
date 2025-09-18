@@ -1,10 +1,11 @@
+#%%
 import torch
 from torch import Tensor
 import matplotlib.pyplot as plt
 
 from evf import EmpiricalVectorField, sample_rho_t_empirical
 from metrics import nn_rmse_to_targets
-from evf_circles_images import generate_circle_images, show_image_grid
+from circle_images import generate_circle_images, show_image_grid
 
 
 @torch.no_grad()
@@ -102,3 +103,5 @@ if __name__ == "__main__":
     )
 
 
+
+# %%

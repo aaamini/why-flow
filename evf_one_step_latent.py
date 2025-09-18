@@ -3,7 +3,7 @@ import torch
 from torch import Tensor
 from torch import nn
 
-from evf import EmpiricalVectorField, sample_rho_t_empirical
+from evf import EmpiricalVectorField, sample_rho_t_empirical, Integrator, uniform_grid
 from metrics import nn_rmse_to_targets
 from circle_images import generate_circle_images, show_image_grid
 
@@ -16,6 +16,13 @@ def euler_one_step(Y: Tensor, x_t: Tensor, t: float) -> Tensor:
     v = field(t_tensor, x_t)
     return x_t + (1.0 - float(t)) * v
 
+def dode(Y: Tensor, n_steps: int, t: float, n_samp: int, method: str) -> Tensor:
+    field = EmpiricalVectorField(Y)
+    integ = Integrator(field)
+    t_grid = uniform_grid(n_steps, t1=t)    
+    x0 = torch.randn(n_samp, Y.size(1), device=Y.device, dtype=Y.dtype)    
+    xT = integ.integrate(x0, t_grid, method=method, return_traj=False)
+    return xT
 
 class IdentityEncoder(nn.Module):
     def __init__(self):
@@ -69,6 +76,7 @@ show_vis = True
 use_encoder = True
 fit_decoder = True
 ridge_lambda = 1e-2
+n_steps = 12
 
 with torch.no_grad():
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -140,15 +148,15 @@ with torch.no_grad():
 
     # 4) Do one-step Euler in latent space
     x1_euler_lat = euler_one_step(zY, x_t_lat, t)
-
+    x1_lat_dode = dode(zY, n_steps=n_steps, t=t, n_samp=n_samp, method="rk2")
     # 5) Decode back to image space
     x_t = decoder(x_t_lat) if isinstance(decoder, nn.Module) else decoder(x_t_lat)
     x1_euler = decoder(x1_euler_lat) if isinstance(decoder, nn.Module) else decoder(x1_euler_lat)
-
+    x1_lat_dode = decoder(x1_lat_dode) if isinstance(decoder, nn.Module) else decoder(x1_lat_dode)
     # 6) Evaluate novelty/fit in image space
     novelty_xt = nn_rmse_to_targets(x_t, Y_img)
     novelty_euler = nn_rmse_to_targets(x1_euler, Y_img)
-
+    novelty_lat_dode = nn_rmse_to_targets(x1_lat_dode, Y_img)
     # Fit to a finer grid of target images (acts as dense cover of manifold)
     Y_fine = generate_circle_images(
         max(n_samp, 8000),
@@ -160,15 +168,18 @@ with torch.no_grad():
     )
     fit_xt = nn_rmse_to_targets(x_t, Y_fine)
     fit_euler = nn_rmse_to_targets(x1_euler, Y_fine)
+    fit_lat_dode = nn_rmse_to_targets(x1_lat_dode, Y_fine)
 
     print(f"t={t:.3f} | latent_dim={D_lat} | image_dim={D_img}")
     print(f"x_t: novelty={novelty_xt:.4g} | fit={fit_xt:.4g}")
     print(f"Euler: novelty={novelty_euler:.4g} | fit={fit_euler:.4g}")
+    print(f"Dode: novelty={novelty_lat_dode:.4g} | fit={fit_lat_dode:.4g}")
 
     if show_vis:
         show_image_grid(Y_img, image_size=image_size, title="Training targets (Y)")
         show_image_grid(x_t, image_size=image_size, title=f"x_t ~ rho_t, t={t:.2f}")
         show_image_grid(x1_euler, image_size=image_size, title="x1 via one-step Euler (latent)")
+        show_image_grid(x1_lat_dode, image_size=image_size, title="x1 via Dode (latent)")
 
 
 # %%
