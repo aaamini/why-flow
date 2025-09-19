@@ -122,7 +122,8 @@ def main():
 
     # Sweep settings
     n_target_list = [300, 600, 1200]
-    t_values = np.linspace(0.5, 0.95, 10).tolist()
+    #t_values = np.linspace(0.5, 0.95, 10).tolist()
+    t_values = [0.5,0.6,0.7,0.8,0.9,0.95,0.96,0.97,0.98,0.99,0.995]
     n_steps_values = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
     method = "rk2"
 
