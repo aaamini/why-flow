@@ -43,7 +43,7 @@ VARIANTS = [
 def eval_methods(methods: List[MethodSpec], Y_train: torch.Tensor, Y_real: torch.Tensor, k: int) -> pd.DataFrame:
     records: List[Dict[str, Any]] = []
 
-    base = pr_knn(Y_real, Y_train, k=k)
+    # base = pr_knn(Y_real, Y_train, k=k)
     # records.append({"method": "Train", "param": math.nan, "variant": "vanilla",
     #                 "precision": base["precision"], "recall": base["recall"],
     #                 "kept_real_frac": 1.0, "kept_gen_frac": 1.0})
@@ -57,7 +57,7 @@ def eval_methods(methods: List[MethodSpec], Y_train: torch.Tensor, Y_real: torch
     for m in methods:
         for p in m.params:
             X = m.generator(p, m.n_samples)
-            base = pr_knn(Y_real, X, k=k)
+            # base = pr_knn(Y_real, X, k=k)
             # records.append({"method": m.name, "param": float(p), "variant": "vanilla",
             #                 "precision": base["precision"], "recall": base["recall"],
             #                 "kept_real_frac": 1.0, "kept_gen_frac": 1.0})
