@@ -46,6 +46,7 @@ class InceptionPool3(nn.Module):
             # out: [N, 2048, 1, 1]
             self._feat = out.flatten(1)
         self.model.avgpool.register_forward_hook(hook_fn)
+        # self.model.Mixed_7c.register_forward_hook(hook_fn)
 
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

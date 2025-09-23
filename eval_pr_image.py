@@ -17,7 +17,7 @@ from feature_extractor import InceptionPool3, Whitener
 # Config
 DATASET = "circles_pixels"    # >>> use flattened images
 N_TRAIN = 1024                 
-N_REAL  = 2000
+N_REAL  = 2048
 K       = 3
 
 P_GEN  = 0.95
