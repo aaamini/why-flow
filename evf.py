@@ -3,7 +3,6 @@ from torch import nn, Tensor
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 # --- Empirical vector field (clean: no blend, no top-k) ---
 class EmpiricalVectorField:
     def __init__(self, Y: Tensor, eps: float = 1e-6):

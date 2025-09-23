@@ -1,3 +1,4 @@
+#%%
 import torch
 from torch import nn, optim, Tensor  # <-- CORRECTED: Added Tensor import
 from torch.utils.data import DataLoader, TensorDataset
@@ -85,6 +86,7 @@ def vae_loss(recon_x: Tensor, x: Tensor, mu: Tensor, log_var: Tensor) -> Tensor:
     return (recon_loss + kl_div_loss) / x.size(0)  # Average loss per sample
 
 
+#%%
 # --- Training and Evaluation Logic ---
 
 # --- Main Execution Block ---
@@ -184,3 +186,4 @@ if __name__ == "__main__":
         title="Randomly Generated Images by Simple VAE",
         max_images=num_random_generations
     )
+# %%
