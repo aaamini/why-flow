@@ -29,7 +29,7 @@ N_EVAL       = N_REAL
 
 # >>> feature-space PR toggles:
 MEASURE_IN_FEATURES = True
-WHITEN_FEATURES     = False     # this doesn't work well
+WHITEN_FEATURES     = False     # this doesn't work 
 IMAGE_SIZE          = 32        # must matchcircles_pixels size
 ENC_BATCH_SIZE      = 128
 

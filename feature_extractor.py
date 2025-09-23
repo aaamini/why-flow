@@ -73,13 +73,10 @@ class InceptionPool3(nn.Module):
         feats = []
         for i in range(0, N, batch_size):
             x = imgs[i:i+batch_size].to(self.device).float()
-            # Resize to 299x299
-            x = F.interpolate(x, size=(299,299), mode="bilinear", align_corners=False)
-            # Normalize
-            x = (x - self.mean) / self.std
-            # Forward
-            _ = self.model(x)
-            feats.append(self._feat.float().cpu())
+            x = F.interpolate(x, size=(299,299), mode="bilinear", align_corners=False) # Resize to 299x299
+            x = (x - self.mean) / self.std # Normalize
+            _ = self.model(x) # Hook fills self._feat on self.device
+            feats.append(self._feat.float()) # returns on device
         return torch.cat(feats, dim=0)
 
 
