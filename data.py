@@ -30,6 +30,14 @@ def make_sine(n: int, *, amp: float, noise: float, xspan: float, device, dtype) 
     y = amp * torch.sin(2 * math.pi * x) + noise * torch.randn(n, device=device)
     return torch.stack([x, y], dim=1).to(dtype)
 
+def make_circles_pixels(n: int, *, image_size: int, noise_std: float, thickness: float, vary_center: bool, device, dtype) -> Tensor:
+    from circle_images import generate_circle_images
+    X = generate_circle_images(
+        n, image_size=image_size, noise_std=noise_std, thickness=thickness,
+        device=device, dtype=dtype, vary_center=vary_center, flatten=True
+    )
+    return X
+
 def load_dataset(
     name: str, n_train: int, n_real: int, *,
     device=None, dtype=torch.float32,
@@ -41,6 +49,10 @@ def load_dataset(
     sine_amp: float = 0.5,
     sine_noise: float = 0.0,
     sine_xspan: float = 1.0,
+    image_size: int = 32,
+    pix_noise_std: float = 0.0,
+    pix_thickness: float = 2.0,
+    pix_vary_center: bool = True,
 ) -> Tuple[Tensor, Tensor]:
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if name == "2moons":
@@ -51,6 +63,10 @@ def load_dataset(
         make = lambda n: make_line(n, width=line_width, xspan=line_xspan, device=device, dtype=dtype)
     elif name == "sine":
         make = lambda n: make_sine(n, amp=sine_amp, noise=sine_noise, xspan=sine_xspan, device=device, dtype=dtype)
+    elif name == "circles_pixels":
+        make = lambda n: make_circles_pixels(n, image_size=image_size, noise_std=pix_noise_std,
+                                             thickness=pix_thickness, vary_center=pix_vary_center,
+                                             device=device, dtype=dtype)
     else:
         raise ValueError(f"Unknown dataset: {name}")
     return make(n_train), make(n_real)
