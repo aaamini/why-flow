@@ -234,48 +234,45 @@ def estimate_train_pairwise_distance(
 # -----------------------------
 # Main
 # -----------------------------
-def main():
-    torch.manual_seed(RANDOM_SEED)
 
-    print(f"Using device: {DEVICE}")
+torch.manual_seed(RANDOM_SEED)
 
-    # 1. Load training data in pixel space
-    print("Loading CIFAR-10 training data...")
-    Y_train_flat, img_shape = load_cifar10_train_flat(N_TRAIN)
-    print(f"Train data shape: {Y_train_flat.shape}, image shape: {img_shape}")
+print(f"Using device: {DEVICE}")
 
-    # 1b. Estimate average distance between *training* samples
-    print("Estimating average pairwise distance between training samples...")
-    mean_train_dist, train_pair_dists = estimate_train_pairwise_distance(
-        Y_train_flat,
-        n_pairs=200_000,   # adjust if you want more/less accuracy
-    )
-    D = math.prod(img_shape)
-    mean_train_rms = mean_train_dist / math.sqrt(D)
-    print(f"Estimated mean train-train distance (L2):  {mean_train_dist:.4f}")
-    print(f"Estimated mean train-train distance (RMS): {mean_train_rms:.4f}")
+# 1. Load training data in pixel space
+print("Loading CIFAR-10 training data...")
+Y_train_flat, img_shape = load_cifar10_train_flat(N_TRAIN)
+print(f"Train data shape: {Y_train_flat.shape}, image shape: {img_shape}")
+
+# 1b. Estimate average distance between *training* samples
+print("Estimating average pairwise distance between training samples...")
+mean_train_dist, train_pair_dists = estimate_train_pairwise_distance(
+    Y_train_flat,
+    n_pairs=200_000,   # adjust if you want more/less accuracy
+)
+D = math.prod(img_shape)
+mean_train_rms = mean_train_dist / math.sqrt(D)
+print(f"Estimated mean train-train distance (L2):  {mean_train_dist:.4f}")
+print(f"Estimated mean train-train distance (RMS): {mean_train_rms:.4f}")
 
 
-    # 2. Generate samples via EVF probability-flow ODE
-    print(f"Generating {N_GEN} samples with EVF ODE (steps={ODE_STEPS}, method={INTEG_METHOD})...")
-    X_gen_flat = generate_evf_ode(Y_train_flat, N_GEN)
+# 2. Generate samples via EVF probability-flow ODE
+print(f"Generating {N_GEN} samples with EVF ODE (steps={ODE_STEPS}, method={INTEG_METHOD})...")
+X_gen_flat = generate_evf_ode(Y_train_flat, N_GEN)
 
-    # 3. Nearest-neighbor distances in pixel space
-    print("Computing nearest-neighbor distances to training set...")
-    nn_dists, nn_idx = nearest_neighbor_distances(X_gen_flat, Y_train_flat)
+# 3. Nearest-neighbor distances in pixel space
+print("Computing nearest-neighbor distances to training set...")
+nn_dists, nn_idx = nearest_neighbor_distances(X_gen_flat, Y_train_flat)
 
-    # 4. Histogram
-    plot_distance_histogram(nn_dists, img_shape)
+# 4. Histogram
+plot_distance_histogram(nn_dists, img_shape)
 
-    # 5. Side-by-side examples (most different)
-    show_side_by_side_examples(
-        X_gen_flat,
-        Y_train_flat,
-        nn_idx,
-        nn_dists,
-        img_shape,
-        n_show=N_SHOW,
-    )
-
-if __name__ == "__main__":
-    main()
+# 5. Side-by-side examples (most different)
+show_side_by_side_examples(
+    X_gen_flat,
+    Y_train_flat,
+    nn_idx,
+    nn_dists,
+    img_shape,
+    n_show=N_SHOW,
+)
