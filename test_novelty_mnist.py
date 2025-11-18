@@ -233,6 +233,25 @@ def estimate_train_pairwise_distance(
     return dists.mean().item(), dists
 
 
+@torch.no_grad()
+def train_self_nearest_neighbor_distances(
+    Y_train_flat: Tensor,
+) -> Tensor:
+    """
+    For each training point, compute the distance to its nearest *other*
+    training point (exclude self‑distance).
+    Returns:
+        nn_dists: [N] tensor of nearest‑neighbor L2 distances in pixel space.
+    """
+    # Y_train_flat: [N, D]
+    dist_mat = torch.cdist(Y_train_flat, Y_train_flat)  # [N, N]
+    N = dist_mat.size(0)
+    idx = torch.arange(N, device=Y_train_flat.device)
+    dist_mat[idx, idx] = float("inf")  # exclude self by setting diagonal to +inf
+    nn_dists, _ = dist_mat.min(dim=1)
+    return nn_dists
+
+
 # -----------------------------
 # Main
 # -----------------------------
@@ -245,16 +264,17 @@ def main():
     Y_train_flat, img_shape = load_mnist_train_flat(N_TRAIN)
     print(f"Train data shape: {Y_train_flat.shape}, image shape: {img_shape}")
 
-    # 1b. Estimate average distance between training samples
-    print("Estimating average pairwise distance between training samples...")
-    mean_train_dist, train_pair_dists = estimate_train_pairwise_distance(
-        Y_train_flat,
-        n_pairs=200_000,
-    )
+    # 1b. Nearest‑neighbor distances *within* the training set
+    print("Computing nearest-neighbor distances within training set...")
+    train_nn_dists = train_self_nearest_neighbor_distances(Y_train_flat)  # [N_TRAIN]
     D = math.prod(img_shape)
-    mean_train_rms = mean_train_dist / math.sqrt(D)
-    print(f"Estimated mean train-train distance (L2):  {mean_train_dist:.4f}")
-    print(f"Estimated mean train-train distance (RMS): {mean_train_rms:.4f}")
+    train_nn_rms = train_nn_dists / math.sqrt(D)
+
+    print("Training-set self nearest-neighbor distance quantiles:")
+    for q in [5, 25, 50, 75, 95]:
+        val_l2 = torch.quantile(train_nn_dists, q / 100.0).item()
+        val_rms = torch.quantile(train_nn_rms, q / 100.0).item()
+        print(f"  {q:2d}%-quantile: L2={val_l2:.4f}, RMS={val_rms:.4f}")
 
     # 2. Load VAE
     print(f"Loading VAE with latent_dim={LATENT_DIM} from {VAE_CKPT}...")
