@@ -20,6 +20,12 @@ from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 
 from evf import EmpiricalVectorField, Integrator, uniform_grid
+from novelty_metrics import (
+    nearest_neighbor_distances,
+    estimate_train_pairwise_distance,
+    plot_distance_histogram,
+    show_side_by_side_examples,
+)
 
 
 # -----------------------------
@@ -103,131 +109,10 @@ def generate_evf_ode(
 
 
 # -----------------------------
-# Memorization diagnostics
+# Memorization diagnostics (imported from novelty_metrics)
 # -----------------------------
-@torch.no_grad()
-def nearest_neighbor_distances(
-    X_gen_flat: Tensor,
-    Y_train_flat: Tensor,
-) -> Tuple[Tensor, Tensor]:
-    """
-    Compute nearest-neighbor distances from generated samples to training set
-    in pixel space (Euclidean).
-    Returns:
-      nn_dists: [N_gen]
-      nn_idx:   [N_gen] indices in training set.
-    """
-    # X_gen_flat: [M,D], Y_train_flat: [N,D]
-    # torch.cdist can be memory-heavy, but M~1k and N~50k is fine.
-    # dist_mat: [M, N]
-    dist_mat = torch.cdist(X_gen_flat, Y_train_flat)
-    nn_dists, nn_idx = dist_mat.min(dim=1)
-    return nn_dists, nn_idx
 
 
-def plot_distance_histogram(nn_dists: Tensor, img_shape: Tuple[int,int,int]):
-    """
-    Plot histogram of per-pixel RMS distances to nearest training neighbor.
-    """
-    D = math.prod(img_shape)
-    nn_rms = nn_dists.cpu() / math.sqrt(D)
-
-    plt.figure(figsize=(6,4))
-    plt.hist(nn_rms.numpy(), bins=40, alpha=0.8, edgecolor="black")
-    plt.xlabel("RMS pixel-wise distance to nearest training image")
-    plt.ylabel("Count")
-    plt.title("CIFAR-10 EVF ODE: Nearest-neighbor distances")
-    plt.grid(alpha=0.25)
-    plt.tight_layout()
-    plt.savefig("memorization_hist_cifar10.png", dpi=150)
-    print("Saved histogram: memorization_hist_cifar10.png")
-
-    print("Summary stats (RMS distances):")
-    for q in [0, 25, 50, 75, 90, 95, 99]:
-        val = torch.quantile(nn_rms, q/100.0).item()
-        print(f"  {q:2d}%-quantile: {val:.4f}")
-    print(f"  mean: {nn_rms.mean().item():.4f}")
-    print(f"  min:  {nn_rms.min().item():.4f}")
-    print(f"  max:  {nn_rms.max().item():.4f}")
-
-
-def show_side_by_side_examples(
-    X_gen_flat: Tensor,
-    Y_train_flat: Tensor,
-    nn_idx: Tensor,
-    nn_dists: Tensor,
-    img_shape: Tuple[int,int,int],
-    n_show: int = N_SHOW,
-):
-    """
-    Show generated images with the *largest* nearest-neighbor distance
-    (i.e., most different from training set) side-by-side with their
-    closest training neighbors. Saves to PNG.
-    """
-    C, H, W = img_shape
-    X_gen = X_gen_flat.view(-1, C, H, W).cpu().clamp(0.0, 1.0)
-    Y_train = Y_train_flat.view(-1, C, H, W).cpu().clamp(0.0, 1.0)
-
-    n_show = min(n_show, X_gen.size(0))
-
-    # indices of the n_show samples with *largest* distance to training set
-    top_dists, top_idx = torch.topk(nn_dists, k=n_show, largest=True)
-
-    fig, axes = plt.subplots(n_show, 2, figsize=(4, 2*n_show))
-    if n_show == 1:
-        axes = axes[None, :]  # make 2D for consistency
-
-    for row, gidx in enumerate(top_idx):
-        gidx = gidx.item()
-        tidx = nn_idx[gidx].item()
-        gen_img = X_gen[gidx]
-        train_img = Y_train[tidx]
-
-        # generated
-        ax = axes[row, 0]
-        ax.imshow(gen_img.permute(1, 2, 0).numpy())
-        ax.set_title(f"Generated\n(d={top_dists[row].item():.4f})")
-        ax.axis("off")
-
-        # nearest neighbor
-        ax = axes[row, 1]
-        ax.imshow(train_img.permute(1, 2, 0).numpy())
-        ax.set_title(f"Nearest train (idx={tidx})")
-        ax.axis("off")
-
-    plt.tight_layout()
-    plt.savefig("memorization_examples_cifar10_most_different.png", dpi=150)
-    print("Saved side-by-side examples: memorization_examples_cifar10_most_different.png")
-
-@torch.no_grad()
-def estimate_train_pairwise_distance(
-    Y_train_flat: Tensor,
-    n_pairs: int = 200_000,
-) -> float:
-    """
-    Estimate the average Euclidean distance between *distinct* training samples
-    in pixel space by sampling random pairs (i != j).
-
-    Returns:
-        mean_dist: scalar (in the same units as nn_dists, i.e. raw L2 distance).
-    """
-    N, D = Y_train_flat.shape
-    device = Y_train_flat.device
-
-    # sample indices with replacement; enforce i != j
-    i_idx = torch.randint(0, N, (n_pairs,), device=device)
-    j_idx = torch.randint(0, N, (n_pairs,), device=device)
-    same = (i_idx == j_idx)
-    while same.any():
-        j_idx[same] = torch.randint(0, N, (same.sum(),), device=device)
-        same = (i_idx == j_idx)
-
-    x_i = Y_train_flat[i_idx]   # [n_pairs, D]
-    x_j = Y_train_flat[j_idx]   # [n_pairs, D]
-
-    # Euclidean distances
-    dists = torch.norm(x_i - x_j, dim=1)  # [n_pairs]
-    return dists.mean().item(), dists
 
 #%%
 
@@ -265,7 +150,12 @@ print("Computing nearest-neighbor distances to training set...")
 nn_dists, nn_idx = nearest_neighbor_distances(X_gen_flat, Y_train_flat)
 
 # 4. Histogram
-plot_distance_histogram(nn_dists, img_shape)
+plot_distance_histogram(
+    nn_dists,
+    img_shape,
+    title="CIFAR-10 EVF ODE: Nearest-neighbor distances",
+    filename="memorization_hist_cifar10.png",
+)
 
 # 5. Side-by-side examples (most different)
 show_side_by_side_examples(
@@ -275,4 +165,5 @@ show_side_by_side_examples(
     nn_dists,
     img_shape,
     n_show=N_SHOW,
+    filename="memorization_examples_cifar10_most_different.png",
 )

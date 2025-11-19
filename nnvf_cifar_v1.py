@@ -25,6 +25,14 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 
+from novelty_metrics import (
+    nearest_neighbor_distances,
+    estimate_train_pairwise_distance,
+    plot_distance_histogram,
+    plot_comparison_histogram,
+    show_side_by_side_examples,
+)
+
 
 # ============================================================
 # Config
@@ -363,150 +371,8 @@ def generate_flow_matching(
 
 
 # ============================================================
-# Memorization diagnostics (same as before, plus train-train)
+# Memorization diagnostics (imported from novelty_metrics)
 # ============================================================
-
-@torch.no_grad()
-def nearest_neighbor_distances(
-    X_gen_flat: Tensor,
-    Y_train_flat: Tensor,
-) -> Tuple[Tensor, Tensor]:
-    """
-    Compute nearest-neighbor distances from generated samples to training set
-    in pixel space (Euclidean).
-    Returns:
-      nn_dists: [N_gen]
-      nn_idx:   [N_gen] indices in training set.
-    """
-    dist_mat = torch.cdist(X_gen_flat, Y_train_flat)
-    nn_dists, nn_idx = dist_mat.min(dim=1)
-    return nn_dists, nn_idx
-
-
-@torch.no_grad()
-def estimate_train_pairwise_distance(
-    Y_train_flat: Tensor,
-    n_pairs: int,
-) -> Tuple[float, Tensor]:
-    """
-    Estimate the average Euclidean distance between *distinct* training samples.
-    """
-    N, D = Y_train_flat.shape
-    device = Y_train_flat.device
-
-    i_idx = torch.randint(0, N, (n_pairs,), device=device)
-    j_idx = torch.randint(0, N, (n_pairs,), device=device)
-    same = (i_idx == j_idx)
-    while same.any():
-        j_idx[same] = torch.randint(0, N, (same.sum(),), device=device)
-        same = (i_idx == j_idx)
-
-    x_i = Y_train_flat[i_idx]
-    x_j = Y_train_flat[j_idx]
-    dists = torch.norm(x_i - x_j, dim=1)
-    return dists.mean().item(), dists
-
-
-def plot_distance_histogram(nn_dists: Tensor, img_shape: Tuple[int,int,int]):
-    D = math.prod(img_shape)
-    nn_rms = nn_dists.cpu() / math.sqrt(D)
-
-    plt.figure(figsize=(6,4))
-    plt.hist(nn_rms.numpy(), bins=40, alpha=0.8, edgecolor="black")
-    plt.xlabel("RMS pixel-wise distance to nearest training image")
-    plt.ylabel("Count")
-    plt.title("CIFAR-10 Flow Matching NN distances")
-    plt.grid(alpha=0.25)
-    plt.tight_layout()
-    plt.savefig("fm_memorization_hist_cifar10.png", dpi=150)
-    print("Saved histogram: fm_memorization_hist_cifar10.png")
-
-    print("Summary stats (RMS distances):")
-    for q in [0, 25, 50, 75, 90, 95, 99]:
-        val = torch.quantile(nn_rms, q/100.0).item()
-        print(f"  {q:2d}%-quantile: {val:.4f}")
-    print(f"  mean: {nn_rms.mean().item():.4f}")
-    print(f"  min:  {nn_rms.min().item():.4f}")
-    print(f"  max:  {nn_rms.max().item():.4f}")
-
-
-def plot_comparison_histogram(
-    nn_dists: Tensor,
-    train_pair_dists: Tensor,
-    img_shape: Tuple[int,int,int],
-):
-    D = math.prod(img_shape)
-    gen_rms = nn_dists.cpu() / math.sqrt(D)
-    train_rms = train_pair_dists.cpu() / math.sqrt(D)
-
-    plt.figure(figsize=(6,4))
-    plt.hist(
-        train_rms.numpy(),
-        bins=40,
-        alpha=0.5,
-        edgecolor="black",
-        label="train–train (random pairs)",
-    )
-    plt.hist(
-        gen_rms.numpy(),
-        bins=40,
-        alpha=0.5,
-        edgecolor="black",
-        label="gen–train (nearest)",
-    )
-    plt.xlabel("RMS pixel-wise distance")
-    plt.ylabel("Count")
-    plt.title("CIFAR-10: Flow Matching distance comparison")
-    plt.legend()
-    plt.grid(alpha=0.25)
-    plt.tight_layout()
-    plt.savefig("fm_memorization_hist_comparison_cifar10.png", dpi=150)
-    print("Saved comparison histogram: fm_memorization_hist_comparison_cifar10.png")
-
-
-def show_side_by_side_examples(
-    X_gen_flat: Tensor,
-    Y_train_flat: Tensor,
-    nn_idx: Tensor,
-    nn_dists: Tensor,
-    img_shape: Tuple[int,int,int],
-    n_show: int,
-):
-    """
-    Show generated images with the *largest* nearest-neighbor distance
-    (most different from training set) side-by-side with their
-    closest training neighbors.
-    """
-    Cx, H, W = img_shape
-    X_gen = X_gen_flat.view(-1, Cx, H, W).cpu().clamp(0.0, 1.0)
-    Y_train = Y_train_flat.view(-1, Cx, H, W).cpu().clamp(0.0, 1.0)
-
-    n_show = min(n_show, X_gen.size(0))
-    top_dists, top_idx = torch.topk(nn_dists, k=n_show, largest=True)
-
-    fig, axes = plt.subplots(n_show, 2, figsize=(4, 2*n_show))
-    if n_show == 1:
-        axes = axes[None, :]
-
-    for row, gidx in enumerate(top_idx):
-        gidx = gidx.item()
-        tidx = nn_idx[gidx].item()
-        gen_img = X_gen[gidx]
-        train_img = Y_train[tidx]
-
-        ax = axes[row, 0]
-        ax.imshow(gen_img.permute(1, 2, 0).numpy())
-        ax.set_title(f"Generated\n(d={top_dists[row].item():.4f})")
-        ax.axis("off")
-
-        ax = axes[row, 1]
-        ax.imshow(train_img.permute(1, 2, 0).numpy())
-        ax.set_title(f"Nearest train (idx={tidx})")
-        ax.axis("off")
-
-    plt.tight_layout()
-    plt.savefig("fm_memorization_examples_cifar10_most_different.png", dpi=150)
-    print("Saved side-by-side examples: fm_memorization_examples_cifar10_most_different.png")
 
 
 # ============================================================
@@ -563,8 +429,19 @@ def main():
     nn_dists, nn_idx = nearest_neighbor_distances(X_gen_flat, Y_train_flat)
 
     # 7. Histograms
-    plot_distance_histogram(nn_dists, img_shape)
-    plot_comparison_histogram(nn_dists, train_pair_dists, img_shape)
+    plot_distance_histogram(
+        nn_dists,
+        img_shape,
+        title="CIFAR-10 Flow Matching NN distances",
+        filename="fm_memorization_hist_cifar10.png",
+    )
+    plot_comparison_histogram(
+        nn_dists,
+        train_pair_dists,
+        img_shape,
+        title="CIFAR-10: Flow Matching distance comparison",
+        filename="fm_memorization_hist_comparison_cifar10.png",
+    )
 
     # 8. Side-by-side most-different examples
     show_side_by_side_examples(
@@ -574,6 +451,7 @@ def main():
         nn_dists,
         img_shape,
         n_show=C.n_show,
+        filename="fm_memorization_examples_cifar10_most_different.png",
     )
 
 
