@@ -162,7 +162,8 @@ def main():
     def generate_euler_one(t: float, n_samples: int) -> Tensor:
         return gens_latent.euler_one_step(t, n_samples)
 
-    Z_gen = gens_latent.dode(16, N_GEN)      # [N_GEN, LATENT_DIM]
+    # Z_gen = gens_latent.dode(16, N_GEN)      # [N_GEN, LATENT_DIM]
+    Z_gen = generate_euler_one(EULER_T, N_GEN)
     X_gen_flat = decode_latents_to_pixels(vae, Z_gen)  # [N_GEN, 3*32*32]
 
     # 5. Nearest-neighbor distances in pixel space
