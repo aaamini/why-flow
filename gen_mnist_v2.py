@@ -12,8 +12,8 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 
-# ====== EVF dependencies (ensure evf.py is importable in the same folder) ======
-# evf.py must define:
+# ====== EVF dependencies (ensure evf.py from the why-flow repo is importable) ======
+# The repo https://github.com/aaamini/why-flow contains evf.py with:
 # - sample_rho_t_empirical(Y_train: Tensor, t: float, n: int) -> Tensor
 # - EmpiricalVectorField(Y_train: Tensor) callable: v(t: Tensor, x: Tensor) -> Tensor
 # - Integrator(field) with integrate(x0, t_grid, method, return_traj=False) -> Tensor
@@ -46,11 +46,11 @@ class EVFGenerators:
     def euler_one_step(self, t: float, n_samp: int) -> Tensor:
         # Sample x_t ~ rho_t(Y_train)
         x_t = sample_rho_t_empirical(self.Y_train, float(t), int(n_samp))
-        # Empirical vector field
+        # Empirical vector field v(t, x)
         field = EmpiricalVectorField(self.Y_train.double())
         t_tensor = x_t.new_full((x_t.size(0), 1), float(t))
         v = field(t_tensor, x_t)
-        # Euler backward one step: x_{t-1} ≈ x_t + (1 - t) v(t, x_t)
+        # Euler backward one-step: x_{t-1} ≈ x_t + (1 - t) v(t, x_t)
         return (x_t + (1.0 - float(t)) * v).to(self.dtype)
 
     @torch.no_grad()
@@ -72,21 +72,23 @@ class Config:
     batch_size = 256
     num_workers = 0
 
-    # single digit
+    # single digit to work with
     digit = 0
-    latent_dim = 10  # must match your VAE
-    vae_ckpt = "checkpoints/vae_mnist_digit0_lat10.pt"  # TODO: set your checkpoint path
+
+    # VAE settings
+    latent_dim = 10
+    vae_ckpt = "checkpoints/vae_mnist_digit0_lat10.pt"  # set to your checkpoint path
 
     # how many training samples to use as EVF seeds (Y_train)
     n_train_for_evf = 100
 
-    # how many to generate
+    # number of generated samples
     n_gen = 1000
 
     # Global Euler step time parameter; change here to propagate everywhere
-    t_euler = 0.5
+    t_euler = 0.3
 
-    # how many triplets to show
+    # how many triplets to display
     n_show = 8
 
     out_dir = "outputs"
@@ -175,6 +177,15 @@ def pairwise_min_dist(A: Tensor, B: Tensor, chunk: int = 1000) -> Tensor:
     return torch.cat(mins, dim=0)
 
 
+def make_square_grid_count(n: int) -> Tuple[int, int]:
+    rows = cols = int(math.sqrt(n))
+    if rows * cols < n:
+        cols += 1
+        if rows * cols < n:
+            rows += 1
+    return rows, cols
+
+
 def main():
     cfg = Config()
     ensure_dir(cfg.out_dir)
@@ -195,7 +206,7 @@ def main():
 
     # Encode to latents
     with torch.no_grad():
-        z_train_all, x_train_all = encode_dataset_to_latents(vae, train_loader, cfg.device)  # include seeds
+        z_train_all, x_train_all = encode_dataset_to_latents(vae, train_loader, cfg.device)
         z_test, x_test = encode_dataset_to_latents(vae, test_loader, cfg.device)
 
     N_tr = z_train_all.size(0)
@@ -239,17 +250,13 @@ def main():
     plt.close()
     print(f"Saved scatter to {scatter_path}")
 
-    # Decode generated latents, save grid
+    # Decode generated latents (generated column is already a reconstruction from latent)
     with torch.no_grad():
         x_gen = vae.decode(z_gen.to(cfg.device)).detach().cpu()
 
+    # Save a grid of generated reconstructions
     n_grid = min(64, x_gen.size(0))
-    rows = cols = int(math.sqrt(n_grid)) if int(math.sqrt(n_grid))**2 == n_grid else int(math.floor(math.sqrt(n_grid)))
-    if rows * cols < n_grid:
-        cols = rows + 1
-        if rows * cols < n_grid:
-            rows += 1
-
+    rows, cols = make_square_grid_count(n_grid)
     fig = plt.figure(figsize=(cols, rows))
     for i in range(n_grid):
         ax = fig.add_subplot(rows, cols, i + 1)
@@ -261,46 +268,53 @@ def main():
     plt.close()
     print(f"Saved generated grid to {grid_path}")
 
-    # Triplets: gen / nearest train / nearest test
+    # Triplets: generated (decoded) / nearest train (reconstructed) / nearest test (reconstructed)
     n_show = min(cfg.n_show, z_gen_cpu.size(0))
     pick_idx = torch.linspace(0, z_gen_cpu.size(0) - 1, steps=n_show).long() if n_show > 1 else torch.tensor([0])
 
     with torch.no_grad():
+        # nearest neighbors in latent space
         dist_tr = torch.cdist(z_gen_cpu[pick_idx], z_train_all)  # [n_show, N_tr]
-        nn_tr_idx = dist_tr.argmin(dim=1)                        # nearest train (full set)
+        nn_tr_idx = dist_tr.argmin(dim=1)
         dist_te = torch.cdist(z_gen_cpu[pick_idx], z_test)       # [n_show, N_te]
         nn_te_idx = dist_te.argmin(dim=1)
 
-    with torch.no_grad():
+        # originals (for encoding)
+        x_tr_nn = x_train_all[nn_tr_idx]  # [n_show, 1, 28, 28]
+        x_te_nn = x_test[nn_te_idx]       # [n_show, 1, 28, 28]
+
+        # reconstructions
         x_gen_show = vae.decode(z_gen[pick_idx].to(cfg.device)).detach().cpu()
-        x_tr_show = x_train_all[nn_tr_idx]
-        x_te_show = x_test[nn_te_idx]
+        mu_tr, _ = vae.encode(x_tr_nn.to(cfg.device))
+        x_tr_recon = vae.decode(mu_tr).detach().cpu()
+        mu_te, _ = vae.encode(x_te_nn.to(cfg.device))
+        x_te_recon = vae.decode(mu_te).detach().cpu()
 
     plt.figure(figsize=(6.5, 2.1 * n_show))
     for i in range(n_show):
         # generated
         ax = plt.subplot(n_show, 3, i * 3 + 1)
         ax.imshow(x_gen_show[i, 0], cmap="gray", vmin=0, vmax=1)
-        ax.set_title("generated", fontsize=9)
+        ax.set_title("generated (recon)", fontsize=9)
         ax.axis("off")
 
-        # nearest train
+        # nearest train (reconstructed)
         ax = plt.subplot(n_show, 3, i * 3 + 2)
-        ax.imshow(x_tr_show[i, 0], cmap="gray", vmin=0, vmax=1)
-        ax.set_title("nearest train", fontsize=9)
+        ax.imshow(x_tr_recon[i, 0], cmap="gray", vmin=0, vmax=1)
+        ax.set_title("nearest train (recon)", fontsize=9)
         ax.axis("off")
 
-        # nearest test
+        # nearest test (reconstructed)
         ax = plt.subplot(n_show, 3, i * 3 + 3)
-        ax.imshow(x_te_show[i, 0], cmap="gray", vmin=0, vmax=1)
-        ax.set_title("nearest test", fontsize=9)
+        ax.imshow(x_te_recon[i, 0], cmap="gray", vmin=0, vmax=1)
+        ax.set_title("nearest test (recon)", fontsize=9)
         ax.axis("off")
 
-    ex_path = os.path.join(cfg.out_dir, f"evf_digit{cfg.digit}_examples_t{t_tag}.png")
+    ex_path = os.path.join(cfg.out_dir, f"evf_digit{cfg.digit}_examples_recon_t{t_tag}.png")
     plt.tight_layout()
     plt.savefig(ex_path, dpi=160)
     plt.close()
-    print(f"Saved example triplets to {ex_path}")
+    print(f"Saved example triplets (all reconstructed) to {ex_path}")
 
     # Optional: what fraction of nearest-train belong to the EVF seed subset
     in_seed = torch.isin(nn_tr_idx.cpu(), idx_train_evf.cpu()).float().mean().item()
