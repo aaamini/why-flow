@@ -76,8 +76,8 @@ class Config:
     digit = 0
 
     # VAE settings
-    latent_dim = 10
-    vae_ckpt = "checkpoints/vae_mnist_digit0_lat10.pt"  # set to your checkpoint path
+    latent_dim = 16
+    vae_ckpt = "checkpoints/vae_mnist_digit0_lat16.pt"  # set to your checkpoint path
 
     # how many training samples to use as EVF seeds (Y_train)
     n_train_for_evf = 100
